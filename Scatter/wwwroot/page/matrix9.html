@@ -1,0 +1,569 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Scatter Matrix</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.0.1/echarts.js"></script>
+</head>
+<body>
+    <div id="main" style="width:90%;height:800px">
+
+    </div>
+    <script type="text/javascript">
+        var chartDom = document.getElementById('main');
+        var myChart = echarts.init(chartDom);
+        var option;
+        var app = {};
+        var indices = {
+            name: 0,
+            group: 1,
+            id: 16
+        };
+        //对应json数据的格式
+        var schema = [
+            { name: 'name', index: 0 },//名称
+            { name: 'group', index: 1 },//分组
+            { name: 'protein', index: 2 },//蛋白质
+            { name: 'calcium', index: 3 },//钙
+            { name: 'sodium', index: 4 },//钠
+            { name: 'fiber', index: 5 },//纤维
+            { name: 'vitaminc', index: 6 }, //维生素c
+            { name: 'potassium', index: 7 },//钾
+            { name: 'carbohydrate', index: 8 },//碳水化合物
+            { name: 'sugars', index: 9 },//糖
+            { name: 'fat', index: 10 },//脂肪
+            { name: 'water', index: 11 },//水
+            { name: 'calories', index: 12 },//卡路里
+            { name: 'saturated', index: 13 },//饱和
+            { name: 'monounsat', index: 14 },//单不饱和
+            { name: 'polyunsat', index: 15 },//多不饱和
+            { name: 'id', index: 16 }//编号
+        ];
+
+        //坐标轴颜色
+        var axisColors = {
+            'xAxisLeft': '#2A8339',
+            'xAxisCenter': '#000',
+            'xAxisRight': '#367DA6',
+            'yAxisTop': '#A68B36',
+            'yAxisCenter': '#000',
+            'yAxisBottom': '#BD5692'
+        };
+        var colorBySchema = {};
+
+        //字段索引
+        var fieldIndices = schema.reduce(function (obj, item) {
+            obj[item.name] = item.index;
+            return obj;
+        }, {});
+
+        var groupCategories = [];
+        var groupColors = [];
+        var data;
+
+        // zlevel 为 1 的层开启尾迹特效
+        myChart.getZr().configLayer(1, {
+            motionBlur: 0.5
+        });
+
+        //规范化数据
+        function normalizeData(originData) {
+            var groupMap = {};
+            originData.forEach(function (row) {
+                var groupName = row[indices.group];
+                if (!groupMap.hasOwnProperty(groupName)) {
+                    groupMap[groupName] = 1;
+                }
+            });
+
+            originData.forEach(function (row) {
+                row.forEach(function (item, index) {
+                    if (index !== indices.name
+                        && index !== indices.group
+                        && index !== indices.id
+                    ) {
+                        // Convert null to zero, as all of them under unit "g".
+                        row[index] = parseFloat(item) || 0;
+                    }
+                });
+            });
+
+            for (var groupName in groupMap) {
+                if (groupMap.hasOwnProperty(groupName)) {
+                    groupCategories.push(groupName);
+                }
+            }
+            var hStep = Math.round(300 / (groupCategories.length - 1));
+            for (var i = 0; i < groupCategories.length; i++) {
+                groupColors.push(echarts.color.modifyHSL('#5A94DF', hStep * i));
+            }
+
+            return originData;
+        }
+
+        //制作坐标轴
+        function makeAxis(dimIndex, id, name, nameLocation) {
+            var axisColor = axisColors[id.split('-')[dimIndex]];
+            colorBySchema[name] = axisColor;
+            return {
+                id: id,
+                name: name,
+                nameLocation: nameLocation,
+                nameGap: nameLocation === 'middle' ? 30 : 10,
+                gridId: id,
+                splitLine: { show: false },
+                axisLine: {
+                    lineStyle: {
+                        color: axisColor
+                    }
+                },
+                axisLabel: {
+                    textStyle: {
+                        color: axisColor
+                    }
+                },
+                axisTick: {
+                    lineStyle: {
+                        color: axisColor
+                    }
+                }
+            };
+        }
+
+        //制作显示用数据
+        function makeSeriesData(xLeftOrCenterOrRight, yTopOrCenterOrBottom) {
+            return data.map(function (item, idx) {
+                var schemaX = app.config[xLeftOrCenterOrRight];
+                var schemaY = app.config[yTopOrCenterOrBottom];
+                return [
+                    item[fieldIndices[schemaX]], // 0: xValue
+                    item[fieldIndices[schemaY]], // 1: yValue
+                    item[1],                     // 2: group
+                    item[0],                     // 3: name
+                    schemaX,                     // 4: schemaX
+                    schemaY,                     // 5: schemaY
+                    idx                          // 6
+                ];
+            });
+        }
+
+        //制作显示
+        function makeSeries(xLeftOrCenterOrRight, yTopOrCenterOrBottom) {
+            var id = xLeftOrCenterOrRight + '-' + yTopOrCenterOrBottom;
+            return {
+                zlevel: 1,
+                type: 'scatter',
+                name: 'nutrients',
+                xAxisId: id,
+                yAxisId: id,
+                symbolSize: 8,
+                itemStyle: {
+                    emphasis: {
+                        color: '#fff'
+                    }
+                },
+                animationThreshold: 5000,
+                progressiveThreshold: 5000,
+                data: makeSeriesData(xLeftOrCenterOrRight, yTopOrCenterOrBottom)
+            };
+        }
+
+        //制作数据区域
+        function makeDataZoom(opt) {
+            return Object.assign({
+                type: 'slider',
+                filterMode: 'empty',
+                realtime: false
+            }, opt);
+        }
+
+        //提示格式化
+        function tooltipFormatter(params) {
+            // Remove duplicate by data name.
+            var mapByDataName = {};
+            var mapOnDim = { x: {}, y: {}, xy: {} };
+            params.forEach(function (item) {
+                var data = item.data;
+                var dataName = data[3];
+                var mapItem = mapByDataName[dataName] || (mapByDataName[dataName] = {});
+                mapItem[data[4]] = data[0];
+                mapItem[data[5]] = data[1];
+                mapOnDim[item.axisDim][dataName] = mapItem;
+            });
+            Object.keys(mapByDataName).forEach(function (dataName) {
+                if (mapOnDim.x[dataName] && mapOnDim.y[dataName]) {
+                    mapOnDim.xy[dataName] = mapByDataName[dataName];
+                    delete mapOnDim.x[dataName];
+                    delete mapOnDim.y[dataName];
+                }
+            });
+            var resultHTML = [];
+            [['xy', 'CROSS'], ['x', 'V LINE'], ['y', 'H LINE']].forEach(function (dimDefine) {
+                var html = [];
+                Object.keys(mapOnDim[dimDefine[0]]).forEach(function (dataName) {
+                    var mapItem = mapOnDim[dimDefine[0]][dataName];
+                    var valuesHTML = [];
+                    Object.keys(mapItem).forEach(function (dataName) {
+                        valuesHTML.push(
+                            '<span style="color:' + colorBySchema[dataName] + '">'
+                            + dataName
+                            + '</span>: ' + mapItem[dataName]
+                        );
+                    });
+                    html.push('<div style="margin: 10px 0">' + dataName + '<br/>' + valuesHTML.join('<br/>') + '</div>');
+                });
+                html.length && resultHTML.push(
+                    '<div style="margin: 10px 0">'
+                    + '<div style="font-size: 16px; color: #aaa">POINTS ON ' + dimDefine[1] + '</div>'
+                    + html.join('')
+                    + '</div>'
+                );
+            });
+            return resultHTML.join('');
+        }
+
+        //获取显示选项
+        function getOption(data) {
+            var gridWidth = '20%';
+            var gridHeight = '20%';
+            var gridLeft = '7%';
+            var gridRight = '7%';
+            var gridCenter = '40%';
+            var gridTop = '7%';
+            var gridBottom = '7%';
+
+            var opt = {
+                //提示框组件。
+                tooltip: {
+                    trigger: 'none',
+                    padding: [10, 20, 10, 20],
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    transitionDuration: 0,
+                    extraCssText: 'width: 300px; white-space: normal',
+                    textStyle: {
+                        color: '#fff',
+                        fontSize: 12
+                    },
+                    //提示框浮层的位置，默认不设置时位置会跟随鼠标的位置。
+                    //回调函数，格式如下：  (point: Array, params: Object | Array.< Object >, dom: HTMLDomElement, rect: Object, size: Object) => Array
+                    //参数：
+                    //point: 鼠标位置，如 [20, 40]。
+                    //params: 同 formatter 的参数相同。
+                    //dom: tooltip 的 dom 对象。
+                    //rect: 只有鼠标在图形上时有效，是一个用x, y, width, height四个属性表达的图形包围盒。
+                    //size: 包括 dom 的尺寸和 echarts 容器的当前尺寸，例如：{ contentSize: [width, height], viewSize: [width, height] }。
+
+                    //返回值：
+                    //可以是一个表示 tooltip 位置的数组，数组值可以是绝对的像素值，也可以是相 百分比。
+                    //也可以是一个对象，如：{ left: 10, top: 30}，或者 { right: '20%', bottom: 40}。
+                    position: function (pos, params, el, elRect, size) {
+                        var obj = {};
+                        //// 鼠标在左侧时 tooltip 显示到右侧，鼠标在右侧时 tooltip 显示到左侧。
+                        obj[['left', 'right'][+(pos[0] < size.viewSize[0] / 2)]] = 60;
+                        obj[['top', 'bottom'][+(pos[1] < size.viewSize[1] / 2)]] = 20;
+                        return obj;
+                    },
+                    formatter: tooltipFormatter
+                },
+                //坐标轴指示器（axisPointer）的全局公用设置。坐标轴指示器是指示坐标轴当前刻度的工具。
+                //鼠标悬浮到图上，可以出现标线和刻度文本。
+                //在多轴的场景能起到辅助作用
+                axisPointer: {
+                    show: true,
+                    snap: true,
+                    lineStyle: {
+                        type: 'dashed'
+                    },
+                    label: {
+                        show: true,
+                        margin: 6,
+                        backgroundColor: '#556',
+                        textStyle: {
+                            color: '#fff'
+                        }
+                    },
+                    //不同轴的 axisPointer 可以进行联动
+                    link: [{
+                        xAxisId: ['xAxisLeft-yAxisTop', 'xAxisLeft-yAxisCenter', 'xAxisLeft-yAxisBottom']
+                    }, {
+                            xAxisId: ['xAxisCenter-yAxisTop', 'xAxisCenter-yAxisCenter', 'xAxisCenter-yAxisBottom']
+                        }, {
+                            xAxisId: ['xAxisRight-yAxisTop', 'xAxisRight-yAxisCenter', 'xAxisRight-yAxisBottom']
+                        }, {
+                        yAxisId: ['xAxisLeft-yAxisTop', 'xAxisCenter-yAxisTop', 'xAxisRight-yAxisTop']
+                        }, {
+                            yAxisId: ['xAxisLeft-yAxisCenter', 'xAxisCenter-yAxisCenter', 'xAxisRight-yAxisCenter']
+                        },{
+                        yAxisId: ['xAxisLeft-yAxisBottom', 'xAxisCenter-yAxisBottom','xAxisRight-yAxisBottom']
+                    }]
+                },
+                xAxis: [
+                    makeAxis(0, 'xAxisLeft-yAxisTop', 'carbohydrate', 'middle'),
+                    makeAxis(0, 'xAxisLeft-yAxisCenter', 'carbohydrate', 'middle'),
+                    makeAxis(0, 'xAxisLeft-yAxisBottom', 'carbohydrate', 'middle'),
+                    makeAxis(0, 'xAxisCenter-yAxisTop', 'sugars', 'middle'),
+                    makeAxis(0, 'xAxisCenter-yAxisCenter', 'sugars', 'middle'),
+                    makeAxis(0, 'xAxisCenter-yAxisBottom', 'sugars', 'middle'),
+                    makeAxis(0, 'xAxisRight-yAxisTop', 'potassium', 'middle'),
+                    makeAxis(0, 'xAxisRight-yAxisCenter', 'potassium', 'middle'),
+                    makeAxis(0, 'xAxisRight-yAxisBottom', 'potassium', 'middle')
+                ],
+                yAxis: [
+                    makeAxis(1, 'xAxisLeft-yAxisTop', 'calcium', 'end'),
+                    makeAxis(1, 'xAxisLeft-yAxisCenter', 'calories', 'end'),
+                    makeAxis(1, 'xAxisLeft-yAxisBottom', 'fiber', 'end'),
+                    makeAxis(1, 'xAxisCenter-yAxisTop', 'calcium', 'end'),
+                    makeAxis(1, 'xAxisCenter-yAxisCenter', 'calories', 'end'),
+                    makeAxis(1, 'xAxisCenter-yAxisBottom', 'fiber', 'end'),
+                    makeAxis(1, 'xAxisRight-yAxisTop', 'calcium', 'end'),
+                    makeAxis(1, 'xAxisRight-yAxisCenter', 'calories', 'end'),
+                    makeAxis(1, 'xAxisRight-yAxisBottom', 'fiber', 'end')
+                ],
+                //直角坐标系内绘图网格，单个 grid 内最多可以放置上下两个 X 轴，左右两个 Y 轴
+                grid: [{
+                    id: 'xAxisLeft-yAxisTop',
+                    left: gridLeft,
+                    top: gridTop,
+                    width: gridWidth,
+                    height: gridHeight
+                },
+                    {
+                    id: 'xAxisLeft-yAxisCenter',
+                    left: gridLeft,
+                    top: gridCenter,
+                    width: gridWidth,
+                    height: gridHeight
+                }, {
+                    id: 'xAxisLeft-yAxisBottom',
+                    left: gridLeft,
+                    bottom: gridBottom,
+                    width: gridWidth,
+                    height: gridHeight
+                }, {
+                    id: 'xAxisCenter-yAxisTop',
+                    left: gridCenter,
+                    top: gridTop,
+                    width: gridWidth,
+                    height: gridHeight
+                }, {
+                    id: 'xAxisCenter-yAxisCenter',
+                    left: gridCenter,
+                    top: gridCenter,
+                    width: gridWidth,
+                    height: gridHeight
+                }, {
+                    id: 'xAxisCenter-yAxisBottom',
+                    left: gridCenter,
+                    bottom: gridBottom,
+                    width: gridWidth,
+                    height: gridHeight
+                }, {
+                    id: 'xAxisRight-yAxisTop',
+                    right: gridRight,
+                    top: gridTop,
+                    width: gridWidth,
+                    height: gridHeight
+                }, {
+                    id: 'xAxisRight-yAxisCenter',
+                    right: gridRight,
+                    top: gridCenter,
+                    width: gridWidth,
+                    height: gridHeight
+                }, {
+                    id: 'xAxisRight-yAxisBottom',
+                    right: gridRight,
+                    bottom: gridBottom,
+                    width: gridWidth,
+                    height: gridHeight
+                    }
+                ],
+                //用于区域缩放，从而能自由关注细节的数据信息，或者概览数据整体，或者去除离群点的影响
+                dataZoom: [
+                    makeDataZoom({
+                        width: gridWidth,
+                        height: 20,
+                        left: gridLeft,
+                        bottom: 10,
+                        xAxisIndex: [0, 1]
+                    }),
+                    makeDataZoom({
+                        width: gridWidth,
+                        height: 20,
+                        left: gridCenter,
+                        bottom: 10,
+                        xAxisIndex: [2, 3]
+                    }),
+                    makeDataZoom({
+                        width: gridWidth,
+                        height: 20,
+                        right: gridRight,
+                        bottom: 10,
+                        xAxisIndex: [4, 5]
+                    }),
+                    makeDataZoom({
+                        orient: 'vertical',
+                        width: 20,
+                        height: gridHeight,
+                        left: 10,
+                        top: gridTop,
+                        yAxisIndex: [0, 3]
+                    }),
+                    makeDataZoom({
+                        orient: 'vertical',
+                        width: 20,
+                        height: gridHeight,
+                        left: 10,
+                        top: gridCenter,
+                        yAxisIndex: [1, 4]
+                    }),
+                    makeDataZoom({
+                        orient: 'vertical',
+                        width: 20,
+                        height: gridHeight,
+                        left: 10,
+                        bottom: gridBottom,
+                        yAxisIndex: [2, 5]
+                    })
+                ],
+                visualMap: [{
+                    show: false,
+                    type: 'piecewise',
+                    categories: groupCategories,
+                    dimension: 2,
+                    inRange: {
+                        color: groupColors //['#d94e5d','#eac736','#50a3ba']
+                    },
+                    outOfRange: {
+                        color: ['#ccc'] //['#d94e5d','#eac736','#50a3ba']
+                    },
+                    top: 20,
+                    textStyle: {
+                        color: '#fff'
+                    },
+                    realtime: false
+                }],
+                series: [
+                    makeSeries('xAxisLeft', 'yAxisTop'),
+                    makeSeries('xAxisLeft', 'yAxisCenter'),
+                    makeSeries('xAxisLeft', 'yAxisBottom'),
+                    makeSeries('xAxisCenter', 'yAxisTop'),
+                    makeSeries('xAxisCenter', 'yAxisCenter'),
+                    makeSeries('xAxisCenter', 'yAxisBottom'),
+                    makeSeries('xAxisRight', 'yAxisTop'),
+                    makeSeries('xAxisRight', 'yAxisCenter'),
+                    makeSeries('xAxisRight', 'yAxisBottom')
+                ],
+                animationEasingUpdate: 'cubicInOut',
+                animationDurationUpdate: 2000
+            };
+
+            return opt;
+        }
+
+        var fieldNames = schema.map(function (item) {
+            return item.name;
+        }).slice(2);
+
+        app.config = {
+            xAxisLeft: 'carbohydrate',
+            xAxisCenter: 'sugars',
+            xAxisRight: 'potassium',
+            yAxisTop: 'calcium',
+            yAxisCenter: 'calories',
+            yAxisBottom: 'fiber',
+            onChange: function () {
+                if (data) {
+                    colorBySchema[app.config.xAxisLeft] = axisColors.xAxisLeft;
+                    colorBySchema[app.config.xAxisCenter] = axisColors.xAxisCenter;
+                    colorBySchema[app.config.xAxisRight] = axisColors.xAxisRight;
+                    colorBySchema[app.config.yAxisTop] = axisColors.yAxisTop;
+                    colorBySchema[app.config.yAxisCenter] = axisColors.yAxisCenter;
+                    colorBySchema[app.config.yAxisBottom] = axisColors.yAxisBottom;
+
+                    myChart.setOption({
+                        xAxis: [{
+                            name: app.config.xAxisLeft
+                        }, {
+                            name: app.config.xAxisLeft
+                        }, {
+                            name: app.config.xAxisCenter
+                        }, {
+                            name: app.config.xAxisCenter
+                        }, {
+                            name: app.config.xAxisRight
+                        }, {
+                            name: app.config.xAxisRight
+                        }],
+                        yAxis: [{
+                            name: app.config.yAxisTop
+                        }, {
+                            name: app.config.yAxisCenter
+                        }, {
+                            name: app.config.yAxisBottom
+                        }, {
+                            name: app.config.yAxisTop
+                        }, {
+                            name: app.config.yAxisCenter
+                        }, {
+                            name: app.config.yAxisBottom
+                        }],
+                        series: [{
+                            data: makeSeriesData('xAxisLeft', 'yAxisTop')
+                        },
+                        {
+                            data: makeSeriesData('xAxisLeft', 'yAxisCenter')
+                        },
+                        {
+                            data: makeSeriesData('xAxisLeft', 'yAxisBottom')
+                        }, {
+                            data: makeSeriesData('xAxisCenter', 'yAxisTop')
+                        },
+                        {
+                            data: makeSeriesData('xAxisCenter', 'yAxisCenter')
+                        },
+                        {
+                            data: makeSeriesData('xAxisCenter', 'yAxisBottom')
+                        }, {
+                            data: makeSeriesData('xAxisRight', 'yAxisTop')
+                        }, {
+                            data: makeSeriesData('xAxisRight', 'yAxisCenter')
+                        }, {
+                            data: makeSeriesData('xAxisRight', 'yAxisBottom')
+                        }]
+                    });
+                }
+            }
+        };
+
+        app.configParameters = {
+            xAxisLeft: {
+                options: fieldNames
+            },
+            xAxisCenter: {
+                options: fieldNames
+            },
+            xAxisRight: {
+                options: fieldNames
+            },
+            yAxisTop: {
+                options: fieldNames
+            },
+            yAxisCenter: {
+                options: fieldNames
+            },
+            yAxisBottom: {
+                options: fieldNames
+            }
+        };
+
+        $.get('../json/nutrients.json', function (originData) {
+            data = normalizeData(originData).slice(0, 1000);
+
+            myChart.setOption(option = getOption(data));
+        });
+
+        option && myChart.setOption(option);
+    </script>
+</body>
+</html>
