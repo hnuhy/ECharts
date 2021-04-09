@@ -3,16 +3,16 @@
 ###### ECharts示例与学习
 
 ###### **Examples**
-从v1到v4的所有在github上的示例
+从v1到v5的所有在github上的示例
 ###### Histogram直方图
-histogram.html：一个简单的直方图
+-histogram.html：一个简单的直方图
 ###### Line折线图
-lines.html：多条线段加一个柱状图
-linescolors.html：多条线段，线在中间变色
-linespies.html：多条线段，移到某个点的时候，显示同X轴值的饼图
+ -lines.html：多条线段加一个柱状图
+ -linescolors.html：多条线段，线在中间变色
+ -linespies.html：多条线段，移到某个点的时候，显示同X轴值的饼图
 ###### Map图
 注意：矩阵树图当进行缩放时，区域会变化
-area.html：一个显示区域划分的矩阵树图
+#########area.html：一个显示区域划分的矩阵树图
 areaImg.html：带底色与图标的矩阵树图
 china.html：中国地图
 geo.html：自定义的一个geoJson画图
