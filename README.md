@@ -19,7 +19,7 @@
  - heat.html：一个网络延时的热力图
  - province.html：省份地图
  - svg.html：版本2中的世界杯进球示意图
-###### Scatter散点图
+### Scatter散点图
  - areas.html：多个区域的散点图
  - matrix.html：四个图的矩阵散点图
  - matrix9.html：九个图的矩阵散点图
